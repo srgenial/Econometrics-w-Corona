@@ -1,0 +1,231 @@
+---
+title: "Inflacion_Notebook"
+output:
+  html_notebook: default
+  pdf_document: default
+editor_options:
+  chunk_output_type: inline
+---
+# INITIAL SETUP
+Install packages and clear old data
+Define Libraries
+Define route of file
+Assign object Datos for datavalue.
+For this Excersice we'll implement vars and tseries library
+
+```{r}
+# Clear workspace
+rm(list = ls())
+sessionInfo()
+
+getwd()
+# Set the working directory
+setwd("C:/Users/srgen/OneDrive/Documentos/Applied Economics/Econometrics/Econometrics II class/Corona EcoII-2/Inflacion")
+getwd()
+
+libs <- c("vars","tseries","forecast")
+class(libs)
+length(libs)
+for (i in libs) {
+  if(!is.element(i,.packages(all.available = TRUE))) {
+    install.packages(i,repos="https://cran.revolutionanalytics.com/")
+  }
+  library(i,character.only = TRUE)
+}
+```
+# Load data
+The set of data is integrated by:
+1. INPC_anual: The National Consumer Price Index of Mexico aka inflation
+2. CETES_28: Mexican Federal Treasury Certificates.
+```{r}
+
+# ruta
+path <-  "C:/Users/srgen/OneDrive/Documentos/Applied Economics/Econometrics/Econometrics II class/Corona EcoII-2/Inflacion/"
+
+# @ ejemplo aplicado con la base de datos de inflaciOn
+inf1 <- read.csv(paste(path, "Tabla para inflacion.csv", sep = ""), row.names = 1)
+```
+# Graph the series
+We can observe series behavior and perceive some tendency
+# Correlation of variables
+Verify the correlation of the variables INPC and CETES
+At the same time we can observe the correlation of the variables.
+
+# Transformacion a Serie de Tiempo
+Trasformamos la data de la inflación y Cetes en Series de Tiempo.
+```{r}
+# las vemos a travEs del tiempo
+inf1<-ts(inf1, start=c(2001,4), frequency=12)
+ts.plot(scale(inf1), col=c(4,rep(1,ncol(inf1)-1)), lwd=c(2,rep(1, ncol(inf1)-1)))
+cor(inf1)
+pairs(inf1)
+```
+# Funcion de Autocorrelacion
+```{r}
+acf(inf1)
+pacf(inf1)
+```
+# DIferentiated data
+Diferenciamos con logaritmos:
+Delta^(12) log (y_t) = (1-L)^12 log (y_t) {diferencias interanuales}
+
+Serie de tiempo con logaritmos diferenciados en 12 por anualidd
+
+Encontramos cosas más alentadoras
+```{r}
+#x_t =Delta^(12) log (y_t) = (1-L)^12 log (y_t)
+inf1_12<- diff(log(inf1),12)
+ts.plot(scale(inf1_12), col=c(4,rep(1,ncol(inf1_12)-1)), lwd=c(2,rep(1, ncol(inf1)-1)))
+pairs(inf1_12)
+```
+# CLASSIC UNIT-ROOT TEST
+# ADF
+P-Value: must be under 0.05 to say it is stacionary
+We won't need a doble differentiation due to the results are positive
+H0= TRUE
+
+OLD VALUES:
+INPC_anual 0.05479361 0.01
+CETES_28   0.40901916 0.01
+```{r warning=FALSE}
+# trabajamos desde el punto de vista estacionario, realizamos pruebas de raIces
+# unitarias
+
+path2<- "C:/Users/srgen/OneDrive/Documentos/Applied Economics/Econometrics/Econometrics II class/Corona EcoII-2/Clase 3 Cointegracion/"
+source(paste(path2, "functions.r", sep=""))
+
+adf_mat<- matrix (0, ncol(inf1_12),2)
+rownames(adf_mat)<- colnames(inf1_12)
+colnames(adf_mat)<- c("lvl","fd")
+for(i in 1: ncol(inf1_12)){
+  adf_mat[i,"lvl"]<-adf(inf1_12[,i], "none")$p.value
+  adf_mat[i,"fd"]<-adf(diff(inf1_12[,i]), "none")$p.value
+}
+adf_mat
+
+```
+# Stationary and cointegrated
+```{r}
+plot(inf1_12)
+```
+# VAR MODEL lag order
+Roots of the characteristic polynomial It tells us the unitary root of the model
+Variety of AIC, HQ and SC
+HQ and AIC=10
+
+```{r}
+# determinamos el nUmero de razagos Optimos con el criterio AIC por ejemplo
+p <- VARselect(inf1_12,lag.max=12, type = "const", season=12)$selection["HQ(n)"]
+p
+p1 <- VARselect(inf1_12,lag.max=12, type = "const", season=12)$selection["AIC(n)"]
+p1
+p2 <- VARselect(inf1_12,lag.max=12, type = "const", season=12)$selection["SC(n)"]
+p2
+
+```
+#characteristic equation (polynomial) unit roots 
+Lag order of a VAR MODEL
+```{r}
+# estimamos el var
+varINF <- VAR(inf1_12, p = 10, type = "const", season = 12)
+
+# summary
+summary(varINF)
+
+```
+# Pruebas de Residuales
+
+# tenemos autocorrelaciOn
+P value < 0.05 Ho: Acepta
+
+```{r}
+# pruebas a los residuales
+serial <- serial.test(varINF)
+arch <- arch.test(varINF)
+
+serial
+arch
+```
+
+Solamente las que tengan un P value Menor al 0.05 son Endógenas.
+Si son exógenas, no explican nada en el modelo.
+Las exógenas se podrían eliminar de la base de datos.
+
+```{r}
+# causalidad de Granger
+cau <- matrix(0, ncol(inf1_12), 1)
+colnames(cau) <- "p.value"
+rownames(cau) <- colnames(inf1_12)
+
+for(i in 1 : ncol(inf1_12))
+  cau[i,] <- causality(varINF, colnames(inf1_12)[i])$Granger$p.value
+
+cau <- round(cau, 4)
+cau
+
+```
+
+# FORECASTING
+```{r}
+# pronOsticos
+fore <- predict(varINF, n.ahead = 10)
+plot(fore)
+```
+# Forecast Result
+```{r}
+fore
+```
+
+# Funciones respuesta impulso
+La línea verde del impulso de respuesta especifia un 0. La azul es la variable que sufre el Shock y tiene que converger otravez al 0. Y al corto plazo Las variables no aplican para explicar la inflación
+```{r}
+# estimamos las funciones de respuesta-impulso
+irff <- irf(varINF)
+
+# plot
+opp <- par(mfrow = c(2,2))
+for(j in 1 : ncol(inf1_12)){
+  for(i in 1 : ncol(inf1)){
+    mea <- irff$irf[[colnames(inf1_12)[j]]][,i]
+    li <- irff$Lower[[colnames(inf1_12)[j]]][,i]
+    ls <- irff$Upper[[colnames(inf1_12)[j]]][,i]
+
+    mat_irf <- cbind(mea, li, ls)
+
+    ts.plot(mat_irf, ylab = "", xlab = "", col = c(4, 2, 2), lty = c(1, 2, 2))
+    abline(h = 0, lty = 2, col = 3)
+    title(paste(colnames(inf1_12)[j], "->", colnames(inf1_12)[i], sep = ""))
+  }
+}
+par(opp)
+```
+# Prueba de Johansen
+```{r}
+johaINF<- ca.jo(inf1_12, ecdet = "const", K= p1)
+summary(johaINF)
+```
+```{r}
+plot(johaINF)
+```
+# Modelo de correccion de errores por MCO
+```{r}
+vecm<-cajorls(johaINF, r=1)
+summary(vecm$rlm)
+```
+# Causality
+```{r}
+Causality <- matrix(inf1_12, ncol(inf1_12),1)
+rownames(Causality) <-colnames(inf1_12)
+for (i in 1 : ncol(inf1_12)) {
+  Causality[i,] <-causality(varINF, cause =colnames(inf1_12)[i])$Granger$p.value
+}
+Causality
+```
+# Soluciones de respuesta impulso
+vec2var
+Estimado por máxima verosimilitud de acuerdo a las funciones de la libreria
+No hay efectos porque siempre esta rondando el 0
+```{r}
+vecinf<-vec2var(johaINF,r=1)
+plot(irf(vecinf))
+```
